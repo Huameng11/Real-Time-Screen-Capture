@@ -1,3 +1,10 @@
+"""
+文件名: region_selector.py
+功能: 提供屏幕区域选择功能，允许用户通过鼠标拖拽在屏幕上选择一个矩形区域进行录制。
+     创建透明覆盖层显示当前屏幕内容，并在用户拖拽时绘制红色矩形框标识选择区域，
+     同时实时显示所选区域的尺寸信息。
+"""
+
 import tkinter as tk
 from PIL import ImageGrab, ImageTk, Image
 
@@ -10,24 +17,24 @@ class RegionSelector:
         self.current_y = None
         self.selection = None
         
-        # Create a transparent fullscreen window
+        # 创建一个透明的全屏窗口
         self.top = tk.Toplevel(parent)
         self.top.attributes("-fullscreen", True)
         self.top.attributes("-alpha", 0.3)
         self.top.attributes("-topmost", True)
         
-        # Take a screenshot for the background
+        # 截取屏幕作为背景
         self.screenshot = ImageGrab.grab()
         self.tk_image = ImageTk.PhotoImage(self.screenshot)
         
-        # Create a canvas that fills the screen
+        # 创建一个填满屏幕的画布
         self.canvas = tk.Canvas(self.top, cursor="cross", bg="grey")
         self.canvas.pack(fill=tk.BOTH, expand=tk.YES)
         
-        # Display the screenshot on the canvas
+        # 在画布上显示截图
         self.canvas.create_image(0, 0, image=self.tk_image, anchor=tk.NW)
         
-        # Create text with instructions
+        # 创建带有指令的文本
         self.canvas.create_text(
             self.screenshot.width // 2,
             20,
@@ -36,26 +43,26 @@ class RegionSelector:
             font=("Arial", 16, "bold")
         )
         
-        # Bind events
+        # 绑定事件
         self.canvas.bind("<ButtonPress-1>", self.on_button_press)
         self.canvas.bind("<B1-Motion>", self.on_mouse_drag)
         self.canvas.bind("<ButtonRelease-1>", self.on_button_release)
         self.top.bind("<Escape>", self.cancel)
         
-        # Initialize rectangle to be drawn
+        # 初始化要绘制的矩形
         self.rect = None
         
-        # Wait for window to be ready
+        # 等待窗口准备就绪
         self.top.update_idletasks()
         self.top.grab_set()
         self.top.wait_visibility()
     
     def on_button_press(self, event):
-        # Save mouse drag start position
+        # 保存鼠标拖动的起始位置
         self.start_x = self.canvas.canvasx(event.x)
         self.start_y = self.canvas.canvasy(event.y)
         
-        # Create a rectangle if not yet exist
+        # 如果矩形尚不存在则创建
         if self.rect:
             self.canvas.delete(self.rect)
         self.rect = self.canvas.create_rectangle(
@@ -64,18 +71,18 @@ class RegionSelector:
         )
     
     def on_mouse_drag(self, event):
-        # Update current position
+        # 更新当前位置
         self.current_x = self.canvas.canvasx(event.x)
         self.current_y = self.canvas.canvasy(event.y)
         
-        # Update rectangle
+        # 更新矩形
         self.canvas.coords(self.rect, self.start_x, self.start_y, self.current_x, self.current_y)
         
-        # Show the current size
+        # 显示当前尺寸
         width = abs(self.current_x - self.start_x)
         height = abs(self.current_y - self.start_y)
         
-        # Update or create size text
+        # 更新或创建尺寸文本
         if hasattr(self, "size_text"):
             self.canvas.delete(self.size_text)
         
@@ -88,30 +95,32 @@ class RegionSelector:
         )
     
     def on_button_release(self, event):
-        # Update current position
+        # 更新当前位置
         self.current_x = self.canvas.canvasx(event.x)
         self.current_y = self.canvas.canvasy(event.y)
         
-        # Calculate the selection
+        # 计算选择区域
         x1 = min(self.start_x, self.current_x)
         y1 = min(self.start_y, self.current_y)
         x2 = max(self.start_x, self.current_x)
         y2 = max(self.start_y, self.current_y)
         
-        # Ensure minimum size (10x10)
+        # 确保最小尺寸（10x10）
         if (x2 - x1) > 10 and (y2 - y1) > 10:
             self.selection = (int(x1), int(y1), int(x2 - x1), int(y2 - y1))
             self.top.destroy()
         else:
-            # Reset if too small
+            # 如果太小则重置
             self.canvas.delete(self.rect)
             self.rect = None
             if hasattr(self, "size_text"):
                 self.canvas.delete(self.size_text)
     
     def cancel(self, event=None):
+        # 取消选择
         self.selection = None
         self.top.destroy()
     
     def get_selection(self):
+        # 返回选择的区域
         return self.selection 
