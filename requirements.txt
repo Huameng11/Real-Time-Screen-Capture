@@ -1,0 +1,8 @@
+mss==9.0.1
+pillow==11.2.1
+pywin32==310
+keyboard==0.13.5
+soundcard==0.4.2
+opencv-python==4.11.0.86
+moviepy==1.0.3
+pyinstaller==6.13.0 
