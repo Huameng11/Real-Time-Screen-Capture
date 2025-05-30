@@ -2,7 +2,7 @@
 文件名: screen_capture.py
 功能: 实现屏幕录制的核心功能，包括视频捕获和系统音频录制，
      以及音视频合并处理。支持指定区域录制，多线程分别处理视频和音频，
-     最终将所有内容合并为单个MP4文件输出。
+     最终将内容合并为MP4文件或GIF动画输出。
 """
 
 import os
@@ -14,20 +14,29 @@ import mss
 import soundcard as sc
 import wave
 from datetime import datetime
-from moviepy.editor import VideoFileClip, AudioFileClip
+from moviepy.editor import VideoFileClip, AudioFileClip, ImageSequenceClip
+import imageio
 
 class ScreenRecorder:
-    def __init__(self, region=None, output_dir=None, fps=30):
+    def __init__(self, region=None, output_dir=None, fps=30, output_format="mp4"):
         self.region = region  # 录制区域 (left, top, width, height)
         self.output_dir = output_dir or os.getcwd()  # 输出目录
         self.fps = fps  # 帧率
         self.running = False  # 录制状态
+        self.output_format = output_format.lower()  # 输出格式：mp4 或 gif
         
         # 输出文件路径
         self.timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.video_path = os.path.join(self.output_dir, f"video_{self.timestamp}.mp4")
         self.system_audio_path = os.path.join(self.output_dir, f"system_audio_{self.timestamp}.wav")
-        self.output_path = os.path.join(self.output_dir, f"recording_{self.timestamp}.mp4")
+        
+        # 根据输出格式设置最终输出文件路径
+        if self.output_format == "gif":
+            self.output_path = os.path.join(self.output_dir, f"recording_{self.timestamp}.gif")
+            # GIF录制时，捕获的帧存储在这里
+            self.frames = []
+        else:  # 默认为MP4
+            self.output_path = os.path.join(self.output_dir, f"recording_{self.timestamp}.mp4")
         
         # 线程
         self.video_thread = None
@@ -94,38 +103,72 @@ class ScreenRecorder:
         try:
             left, top, width, height = self.region
             
-            # 初始化视频写入器
-            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-            out = cv2.VideoWriter(self.video_path, fourcc, self.fps, (width, height))
-            
-            # 初始化屏幕捕获
-            with mss.mss() as sct:
-                monitor = {"left": left, "top": top, "width": width, "height": height}
+            # GIF录制模式
+            if self.output_format == "gif":
+                # 初始化屏幕捕获
+                with mss.mss() as sct:
+                    monitor = {"left": left, "top": top, "width": width, "height": height}
+                    
+                    # 记录帧
+                    frame_count = 0
+                    start_time = time.time()
+                    
+                    while self.running:
+                        # 捕获屏幕
+                        screenshot = sct.grab(monitor)
+                        frame = np.array(screenshot)
+                        
+                        # 转换为RGB格式（GIF使用）
+                        frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2RGB)
+                        
+                        # 存储帧用于后续生成GIF
+                        self.frames.append(frame)
+                        
+                        frame_count += 1
+                        
+                        # 维持帧率
+                        elapsed_time = time.time() - start_time
+                        sleep_time = (frame_count / self.fps) - elapsed_time
+                        if sleep_time > 0:
+                            time.sleep(sleep_time)
                 
-                # 记录帧
-                frame_count = 0
-                start_time = time.time()
-                
-                while self.running:
-                    # 捕获屏幕
-                    frame = np.array(sct.grab(monitor))
-                    
-                    # 转换为BGR格式（OpenCV格式）
-                    frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
-                    
-                    # 写入视频文件
-                    out.write(frame)
-                    
-                    frame_count += 1
-                    
-                    # 维持帧率
-                    elapsed_time = time.time() - start_time
-                    sleep_time = (frame_count / self.fps) - elapsed_time
-                    if sleep_time > 0:
-                        time.sleep(sleep_time)
+                print(f"[调试] GIF录制结束，捕获了 {len(self.frames)} 帧")
             
-            # 释放资源
-            out.release()
+            # MP4录制模式
+            else:
+                # 初始化视频写入器
+                fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                out = cv2.VideoWriter(self.video_path, fourcc, self.fps, (width, height))
+                
+                # 初始化屏幕捕获
+                with mss.mss() as sct:
+                    monitor = {"left": left, "top": top, "width": width, "height": height}
+                    
+                    # 记录帧
+                    frame_count = 0
+                    start_time = time.time()
+                    
+                    while self.running:
+                        # 捕获屏幕
+                        frame = np.array(sct.grab(monitor))
+                        
+                        # 转换为BGR格式（OpenCV格式）
+                        frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
+                        
+                        # 写入视频文件
+                        out.write(frame)
+                        
+                        frame_count += 1
+                        
+                        # 维持帧率
+                        elapsed_time = time.time() - start_time
+                        sleep_time = (frame_count / self.fps) - elapsed_time
+                        if sleep_time > 0:
+                            time.sleep(sleep_time)
+                
+                # 释放资源
+                out.release()
+                
         except Exception as e:
             self.error_messages["video"] = f"录制视频时出错: {str(e)}"
             print(self.error_messages["video"])
@@ -230,8 +273,39 @@ class ScreenRecorder:
             import traceback
             traceback.print_exc()
     
+    def _create_gif(self):
+        """从捕获的帧生成GIF动画"""
+        try:
+            if not self.frames:
+                print("[错误] 没有可用于创建GIF的帧")
+                return None
+                
+            print(f"[调试] 开始创建GIF，共有 {len(self.frames)} 帧")
+            
+            # 使用imageio创建GIF
+            print(f"[调试] 保存GIF到: {self.output_path}")
+            imageio.mimsave(self.output_path, self.frames, fps=self.fps)
+            
+            # 或者使用moviepy创建GIF（可能提供更多的优化选项）
+            # clip = ImageSequenceClip(self.frames, fps=self.fps)
+            # clip.write_gif(self.output_path, fps=self.fps, opt="nq", program="ffmpeg")
+            
+            print(f"[调试] GIF创建完成: {self.output_path}")
+            return self.output_path
+        except Exception as e:
+            error_msg = f"创建GIF时出错: {str(e)}"
+            self.error_messages["video"] = error_msg
+            print(f"[错误] {error_msg}")
+            import traceback
+            traceback.print_exc()
+            return None
+
     def _merge_audio_video(self):
         """合并音频和视频文件到单个输出文件"""
+        # 如果是GIF输出格式，直接创建GIF并返回
+        if self.output_format == "gif":
+            return self._create_gif()
+            
         try:
             # 加载视频
             video = VideoFileClip(self.video_path)
@@ -269,12 +343,17 @@ class ScreenRecorder:
             "video": None
         }
         
+        # 如果是GIF格式，重置帧列表
+        if self.output_format == "gif":
+            self.frames = []
+        
         # 测试系统声音录制
-        success, message = self.test_system_audio()
-        if not success:
-            print(f"警告: {message}")
-            # 不阻止录制，但保存错误信息
-            self.error_messages["system_audio"] = message
+        if self.output_format != "gif":  # GIF格式不需要录制音频
+            success, message = self.test_system_audio()
+            if not success:
+                print(f"警告: {message}")
+                # 不阻止录制，但保存错误信息
+                self.error_messages["system_audio"] = message
         
         self.running = True
         
@@ -283,10 +362,11 @@ class ScreenRecorder:
         self.video_thread.daemon = True
         self.video_thread.start()
         
-        # 启动系统音频录制线程
-        self.system_audio_thread = threading.Thread(target=self._record_system_audio)
-        self.system_audio_thread.daemon = True
-        self.system_audio_thread.start()
+        # 启动系统音频录制线程，仅在MP4格式时启动
+        if self.output_format != "gif":
+            self.system_audio_thread = threading.Thread(target=self._record_system_audio)
+            self.system_audio_thread.daemon = True
+            self.system_audio_thread.start()
     
     def stop(self):
         """停止录制并生成最终输出文件"""
@@ -302,7 +382,7 @@ class ScreenRecorder:
         if self.system_audio_thread:
             self.system_audio_thread.join()
         
-        # 合并音频和视频
+        # 合并音频和视频或创建GIF
         output_path = self._merge_audio_video()
         
         # 清理临时文件
@@ -310,7 +390,7 @@ class ScreenRecorder:
             # 等待一段时间确保文件已释放
             time.sleep(1)
             
-            if os.path.exists(self.video_path):
+            if os.path.exists(self.video_path) and self.output_format != "gif":
                 os.remove(self.video_path)
             if os.path.exists(self.system_audio_path):
                 os.remove(self.system_audio_path)

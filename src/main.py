@@ -23,7 +23,7 @@ class ScreenRecorderApp:
         # 初始化主窗口
         self.root = tk.Tk()
         self.root.title("即时录屏")
-        self.root.geometry("400x400")  # 增加高度，以适应新增控件
+        self.root.geometry("400x420")  # 增加高度，以适应新增控件
         self.root.resizable(False, False)
         
         # 初始化录制状态和路径
@@ -32,6 +32,7 @@ class ScreenRecorderApp:
         self.output_dir = "C:\\Users\\admin\\desktop"
         self.current_region = None  # 添加存储当前区域信息
         self.region_selected = False  # 新增：标记是否已选择区域
+        self.output_format = "mp4"  # 默认输出格式
         os.makedirs(self.output_dir, exist_ok=True)
         
         # 设置UI和快捷键
@@ -116,6 +117,30 @@ class ScreenRecorderApp:
         fps_combobox = ttk.Combobox(fps_frame, textvariable=self.fps_var, values=fps_values, width=5, state="readonly")
         fps_combobox.pack(side=tk.LEFT)
         tk.Label(fps_frame, text="FPS").pack(side=tk.LEFT, padx=(5, 0))
+        
+        # 输出格式选择
+        format_frame = tk.Frame(params_frame)
+        format_frame.pack(fill=tk.X, pady=5)
+        
+        tk.Label(format_frame, text="输出格式:").pack(side=tk.LEFT, padx=(0, 5))
+        self.format_var = tk.StringVar(value="mp4")
+        
+        # 创建单选按钮组
+        mp4_radio = tk.Radiobutton(format_frame, text="MP4 视频", variable=self.format_var, 
+                                 value="mp4", command=self.update_format_info)
+        mp4_radio.pack(side=tk.LEFT, padx=(0, 10))
+        
+        gif_radio = tk.Radiobutton(format_frame, text="GIF 动画", variable=self.format_var, 
+                                 value="gif", command=self.update_format_info)
+        gif_radio.pack(side=tk.LEFT)
+        
+        # 格式信息标签
+        self.format_info_label = tk.Label(params_frame, text="", fg="gray", anchor=tk.W, 
+                                        font=("Arial", 8))
+        self.format_info_label.pack(fill=tk.X, pady=(0, 5))
+        
+        # 初始化格式信息
+        self.update_format_info()
         
         # 按钮框架
         buttons_frame = tk.Frame(self.root, padx=10, pady=10)
@@ -236,11 +261,37 @@ class ScreenRecorderApp:
                 messagebox.showerror("错误", f"无法创建输出目录: {str(e)}")
                 return
             
+            # 获取当前输出格式
+            output_format = self.format_var.get()
+            
+            # GIF格式提示
+            if output_format == "gif":
+                # 估算合理的最大录制时长
+                x, y, width, height = self.current_region
+                bytes_per_frame = width * height * 3  # RGB每像素3字节
+                fps = int(self.fps_var.get())
+                seconds = 10  # 假设10秒录制
+                total_frames = fps * seconds
+                estimated_size_mb = (bytes_per_frame * total_frames) / (1024 * 1024)
+                max_time = min(30, int(100 / estimated_size_mb * 10))  # 限制在30秒内
+                
+                confirm = messagebox.askokcancel(
+                    "GIF录制提示", 
+                    f"您选择了GIF格式录制，请注意：\n\n"
+                    f"1. GIF文件通常较大，特别是高分辨率时\n"
+                    f"2. 建议录制时间不超过{max_time}秒\n"
+                    f"3. GIF格式不包含声音\n\n"
+                    f"是否继续？"
+                )
+                if not confirm:
+                    return
+            
             # 使用已选定区域启动录制器
             self.recorder = ScreenRecorder(
                 region=self.current_region,
                 output_dir=self.output_dir,
-                fps=int(self.fps_var.get())
+                fps=int(self.fps_var.get()),
+                output_format=output_format
             )
             
             # 开始录制
@@ -248,10 +299,10 @@ class ScreenRecorderApp:
             self.recording = True
             self.record_button.config(text="停止录制")
             self.select_region_button.config(state=tk.DISABLED)  # 录制时禁用区域选择
-            self.status_label.config(text="录制中...")
+            self.status_label.config(text=f"正在录制 {output_format.upper()} ...")
             
-            # 检查是否有录制警告
-            if self.recorder.error_messages["system_audio"]:
+            # 检查是否有录制警告（仅MP4格式）
+            if output_format == "mp4" and self.recorder.error_messages["system_audio"]:
                 warning_message = "录制已开始，但存在以下警告:\n\n"
                 warning_message += f"- 系统声音: {self.recorder.error_messages['system_audio']}\n"
                 
@@ -352,8 +403,9 @@ class ScreenRecorderApp:
             width_percent = round((width / screen_width) * 100, 1)
             height_percent = round((height / screen_height) * 100, 1)
             
-            # 获取当前帧率
+            # 获取当前帧率和格式
             fps = self.fps_var.get()
+            output_format = self.format_var.get()
             
             # 创建更详细的区域信息
             info_text = (
@@ -362,6 +414,21 @@ class ScreenRecorderApp:
                 f"位置: 左上角 ({x}, {y})\n"
                 f"帧率: {fps} FPS"
             )
+            
+            # 添加格式信息
+            if output_format == "gif":
+                # 估算文件大小
+                bytes_per_frame = width * height * 3  # RGB每像素3字节
+                seconds = 10  # 假设10秒录制
+                total_frames = int(fps) * seconds
+                estimated_size_mb = (bytes_per_frame * total_frames) / (1024 * 1024)
+                
+                # 根据分辨率和帧率预估最大合理录制时间
+                max_time = min(30, int(100 / estimated_size_mb * 10))  # 限制在30秒内
+                
+                info_text += f"\n格式: GIF 动画 (建议录制不超过{max_time}秒)"
+            else:
+                info_text += "\n格式: MP4 视频"
             
             self.region_info_label.config(
                 text=info_text,
@@ -376,6 +443,21 @@ class ScreenRecorderApp:
             )
             # 禁用录制按钮
             self.record_button.config(state=tk.DISABLED)
+
+    def update_format_info(self):
+        """根据所选格式更新格式信息提示"""
+        selected_format = self.format_var.get()
+        
+        if selected_format == "gif":
+            info_text = "注意: GIF格式文件较大，建议录制时间不要过长，且不包含音频"
+            self.format_info_label.config(text=info_text, fg="#FF6600")
+        else:
+            info_text = "MP4格式可录制视频和系统声音"
+            self.format_info_label.config(text=info_text, fg="gray")
+        
+        # 如果已经选择了区域，更新区域信息
+        if self.current_region:
+            self.update_region_info(self.current_region)
 
 if __name__ == "__main__":
     app = ScreenRecorderApp()
