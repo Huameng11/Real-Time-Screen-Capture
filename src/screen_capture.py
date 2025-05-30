@@ -1,7 +1,7 @@
 """
 文件名: screen_capture.py
-功能: 实现屏幕录制的核心功能，包括视频捕获、系统音频录制、麦克风录制，
-     以及音视频合并处理。支持指定区域或窗口录制，多线程分别处理视频和音频，
+功能: 实现屏幕录制的核心功能，包括视频捕获和系统音频录制，
+     以及音视频合并处理。支持指定区域录制，多线程分别处理视频和音频，
      最终将所有内容合并为单个MP4文件输出。
 """
 
@@ -13,20 +13,12 @@ import numpy as np
 import mss
 import soundcard as sc
 import wave
-import win32gui
-import win32ui
-import win32con
-import win32api
 from datetime import datetime
-from PIL import Image
-from moviepy.editor import VideoFileClip, AudioFileClip, CompositeAudioClip
+from moviepy.editor import VideoFileClip, AudioFileClip
 
 class ScreenRecorder:
-    def __init__(self, region=None, window_handle=None, record_system_audio=True, record_mic=False, output_dir=None, fps=30):
+    def __init__(self, region=None, output_dir=None, fps=30):
         self.region = region  # 录制区域 (left, top, width, height)
-        self.window_handle = window_handle  # 窗口句柄
-        self.record_system_audio = record_system_audio  # 是否录制系统声音
-        self.record_mic = record_mic  # 是否录制麦克风
         self.output_dir = output_dir or os.getcwd()  # 输出目录
         self.fps = fps  # 帧率
         self.running = False  # 录制状态
@@ -35,30 +27,17 @@ class ScreenRecorder:
         self.timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.video_path = os.path.join(self.output_dir, f"video_{self.timestamp}.mp4")
         self.system_audio_path = os.path.join(self.output_dir, f"system_audio_{self.timestamp}.wav")
-        self.mic_audio_path = os.path.join(self.output_dir, f"mic_audio_{self.timestamp}.wav")
         self.output_path = os.path.join(self.output_dir, f"recording_{self.timestamp}.mp4")
         
         # 线程
         self.video_thread = None
         self.system_audio_thread = None
-        self.mic_audio_thread = None
         
         # 录制状态错误信息
         self.error_messages = {
             "system_audio": None,
-            "mic_audio": None,
             "video": None
         }
-        
-        # 如果提供了窗口句柄但没有区域，则获取窗口区域
-        if self.window_handle and not self.region:
-            self.region = self._get_window_region(self.window_handle)
-    
-    def _get_window_region(self, hwnd):
-        """获取指定窗口句柄的区域"""
-        rect = win32gui.GetWindowRect(hwnd)
-        x, y, w, h = rect[0], rect[1], rect[2] - rect[0], rect[3] - rect[1]
-        return (x, y, w, h)
     
     def test_system_audio(self):
         """测试系统音频录制功能是否可用，返回(是否可用, 错误信息)"""
@@ -109,27 +88,6 @@ class ScreenRecorder:
             import traceback
             traceback.print_exc()
             return False, error_msg
-    
-    def test_mic_audio(self):
-        """测试麦克风录制功能是否可用，返回(是否可用, 错误信息)"""
-        try:
-            # 获取默认麦克风
-            microphones = sc.all_microphones()
-            if not microphones:
-                return False, "未找到麦克风设备"
-            
-            default_mic = microphones[0]
-            
-            # 尝试创建录音机
-            with default_mic.recorder(samplerate=44100, channels=1, blocksize=1024) as recorder:
-                # 尝试录制一小段
-                data = recorder.record(100)  # 只录制100帧进行测试
-                if data is None or len(data) == 0:
-                    return False, "录制测试返回空数据"
-                
-                return True, "麦克风录制功能正常"
-        except Exception as e:
-            return False, f"麦克风录制测试失败: {str(e)}"
     
     def _record_video(self):
         """视频录制线程函数"""
@@ -272,76 +230,25 @@ class ScreenRecorder:
             import traceback
             traceback.print_exc()
     
-    def _record_mic_audio(self):
-        """麦克风音频录制线程函数"""
-        try:
-            # 初始化麦克风捕获
-            sample_rate = 44100  # Hz
-            block_size = 1024
-            
-            # 获取默认麦克风
-            microphones = sc.all_microphones()
-            if not microphones:
-                self.error_messages["mic_audio"] = "未找到麦克风"
-                print(self.error_messages["mic_audio"])
-                return
-                
-            default_mic = microphones[0]
-            
-            # 打开音频文件进行写入
-            with wave.open(self.mic_audio_path, 'wb') as wf:
-                wf.setnchannels(1)  # 单声道
-                wf.setsampwidth(2)  # 16位
-                wf.setframerate(sample_rate)
-                
-                # 录制麦克风音频
-                with default_mic.recorder(samplerate=sample_rate, channels=1, blocksize=block_size) as recorder:
-                    while self.running:
-                        data = recorder.record(block_size)
-                        # 转换为int16 PCM
-                        audio_data = (data * 32767).astype(np.int16)
-                        wf.writeframes(audio_data.tobytes())
-        except Exception as e:
-            self.error_messages["mic_audio"] = f"录制麦克风音频时出错: {str(e)}"
-            print(self.error_messages["mic_audio"])
-    
     def _merge_audio_video(self):
         """合并音频和视频文件到单个输出文件"""
         try:
             # 加载视频
             video = VideoFileClip(self.video_path)
             
-            # 要合并的音频轨道
-            audio_clips = []
-            
             # 添加系统音频（如果已录制）
-            if self.record_system_audio and os.path.exists(self.system_audio_path) and os.path.getsize(self.system_audio_path) > 0:
+            if os.path.exists(self.system_audio_path) and os.path.getsize(self.system_audio_path) > 0:
                 try:
                     system_audio = AudioFileClip(self.system_audio_path)
-                    audio_clips.append(system_audio)
+                    video = video.set_audio(system_audio)
                 except Exception as e:
                     print(f"加载系统音频时出错: {e}")
-            
-            # 添加麦克风音频（如果已录制）
-            if self.record_mic and os.path.exists(self.mic_audio_path) and os.path.getsize(self.mic_audio_path) > 0:
-                try:
-                    mic_audio = AudioFileClip(self.mic_audio_path)
-                    audio_clips.append(mic_audio)
-                except Exception as e:
-                    print(f"加载麦克风音频时出错: {e}")
-            
-            # 如果有音频轨道则合并
-            if audio_clips:
-                combined_audio = CompositeAudioClip(audio_clips)
-                video = video.set_audio(combined_audio)
             
             # 写入最终输出
             video.write_videofile(self.output_path, codec='libx264', audio_codec='aac')
             
             # 关闭剪辑
             video.close()
-            for clip in audio_clips:
-                clip.close()
             
             return self.output_path
         except Exception as e:
@@ -359,25 +266,15 @@ class ScreenRecorder:
         # 重置错误信息
         self.error_messages = {
             "system_audio": None,
-            "mic_audio": None,
             "video": None
         }
         
-        # 测试系统声音录制（如果需要）
-        if self.record_system_audio:
-            success, message = self.test_system_audio()
-            if not success:
-                print(f"警告: {message}")
-                # 不阻止录制，但保存错误信息
-                self.error_messages["system_audio"] = message
-        
-        # 测试麦克风录制（如果需要）
-        if self.record_mic:
-            success, message = self.test_mic_audio()
-            if not success:
-                print(f"警告: {message}")
-                # 不阻止录制，但保存错误信息
-                self.error_messages["mic_audio"] = message
+        # 测试系统声音录制
+        success, message = self.test_system_audio()
+        if not success:
+            print(f"警告: {message}")
+            # 不阻止录制，但保存错误信息
+            self.error_messages["system_audio"] = message
         
         self.running = True
         
@@ -386,17 +283,10 @@ class ScreenRecorder:
         self.video_thread.daemon = True
         self.video_thread.start()
         
-        # 如果启用，启动系统音频录制线程
-        if self.record_system_audio:
-            self.system_audio_thread = threading.Thread(target=self._record_system_audio)
-            self.system_audio_thread.daemon = True
-            self.system_audio_thread.start()
-        
-        # 如果启用，启动麦克风录制线程
-        if self.record_mic:
-            self.mic_audio_thread = threading.Thread(target=self._record_mic_audio)
-            self.mic_audio_thread.daemon = True
-            self.mic_audio_thread.start()
+        # 启动系统音频录制线程
+        self.system_audio_thread = threading.Thread(target=self._record_system_audio)
+        self.system_audio_thread.daemon = True
+        self.system_audio_thread.start()
     
     def stop(self):
         """停止录制并生成最终输出文件"""
@@ -412,9 +302,6 @@ class ScreenRecorder:
         if self.system_audio_thread:
             self.system_audio_thread.join()
         
-        if self.mic_audio_thread:
-            self.mic_audio_thread.join()
-        
         # 合并音频和视频
         output_path = self._merge_audio_video()
         
@@ -427,8 +314,6 @@ class ScreenRecorder:
                 os.remove(self.video_path)
             if os.path.exists(self.system_audio_path):
                 os.remove(self.system_audio_path)
-            if os.path.exists(self.mic_audio_path):
-                os.remove(self.mic_audio_path)
         except Exception as e:
             print(f"清理临时文件时出错: {e}")
         
