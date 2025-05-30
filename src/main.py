@@ -14,8 +14,18 @@ import keyboard
 import tkinter as tk
 from tkinter import messagebox, ttk
 import platform
-from PIL import ImageGrab, ImageTk, Image
+from PIL import ImageGrab, ImageTk, Image, ImageDraw
 from ttkthemes import ThemedTk, ThemedStyle
+import tempfile
+import io
+
+try:
+    import pystray
+    from pystray import MenuItem as item
+    TRAY_SUPPORT = True
+except ImportError:
+    print("pystray库未安装，系统托盘功能将不可用")
+    TRAY_SUPPORT = False
 
 from screen_capture import ScreenRecorder
 from region_selector import RegionSelector
@@ -39,8 +49,12 @@ class ScreenRecorderApp:
         self.root = ThemedTk(theme="arc")  # 使用arc主题作为基础
         self.root.title("即时录屏")
         self.root.geometry("450x550")  # 略微增加窗口大小以适应新样式
-        self.root.resizable(False, False)
+        self.root.minsize(450, 550)    # 设置最小尺寸，防止窗口过小
+        self.root.resizable(True, True)  # 允许调整窗口大小
         self.root.configure(background=COLORS["bg"])
+        
+        # 窗口状态跟踪
+        self.window_visible = True     # 窗口可见状态标记
         
         # 应用自定义样式
         self.setup_styles()
@@ -53,6 +67,10 @@ class ScreenRecorderApp:
         self.region_selected = False  # 新增：标记是否已选择区域
         self.output_format = "mp4"  # 默认输出格式
         os.makedirs(self.output_dir, exist_ok=True)
+        
+        # 创建系统托盘图标
+        if TRAY_SUPPORT:
+            self.setup_tray()
         
         # 设置UI和快捷键
         self.setup_ui()
@@ -147,7 +165,7 @@ class ScreenRecorderApp:
         path_frame.pack(fill=tk.X, pady=(0, 10))
         
         path_content = ttk.Frame(path_frame, style='TFrame')
-        path_content.pack(fill=tk.X, padx=10, pady=10)
+        path_content.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
         ttk.Label(path_content, text="输出路径:", style='TLabel').pack(anchor=tk.W, pady=(0, 5))
         
@@ -161,7 +179,7 @@ class ScreenRecorderApp:
         params_frame.pack(fill=tk.X, pady=(0, 10))
         
         params_content = ttk.Frame(params_frame, style='TFrame')
-        params_content.pack(fill=tk.X, padx=10, pady=10)
+        params_content.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
         # 系统声音状态
         audio_frame = ttk.Frame(params_content, style='TFrame')
@@ -225,28 +243,29 @@ class ScreenRecorderApp:
         
         # ===== 录制区域信息框架 =====
         region_frame = ttk.LabelFrame(main_container, text="录制区域", style='TLabelframe')
-        region_frame.pack(fill=tk.X, pady=(0, 10))
+        region_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
         
         region_content = ttk.Frame(region_frame, style='TFrame')
-        region_content.pack(fill=tk.X, padx=10, pady=10)
+        region_content.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
         self.region_info_label = ttk.Label(region_content, text="未选择", style='TLabel')
         self.region_info_label.pack(fill=tk.X)
         
         # ===== 快捷键信息 =====
         hotkey_frame = ttk.LabelFrame(main_container, text="快捷键", style='TLabelframe')
-        hotkey_frame.pack(fill=tk.X)
+        hotkey_frame.pack(fill=tk.BOTH, expand=True)
         
         hotkey_content = ttk.Frame(hotkey_frame, style='TFrame')
-        hotkey_content.pack(fill=tk.X, padx=10, pady=10)
+        hotkey_content.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
         ttk.Label(hotkey_content, text="Ctrl+Alt+S: 选择录制区域", style='TLabel').pack(anchor=tk.W)
         ttk.Label(hotkey_content, text="Ctrl+Alt+R: 开始/停止录制", style='TLabel').pack(anchor=tk.W)
+        ttk.Label(hotkey_content, text="Ctrl+Alt+H: 显示/隐藏界面", style='TLabel').pack(anchor=tk.W)
         ttk.Label(hotkey_content, text="Ctrl+Alt+Q: 退出应用", style='TLabel').pack(anchor=tk.W)
         
         # ===== 状态框架 =====
         status_frame = ttk.Frame(self.root, style='TFrame')
-        status_frame.pack(fill=tk.X, side=tk.BOTTOM, padx=10, pady=5)
+        status_frame.pack(fill=tk.X, side=tk.BOTTOM, padx=15, pady=10)
         
         self.status_label = ttk.Label(status_frame, text="就绪", relief=tk.SUNKEN, anchor=tk.W, 
                                     padding=(5, 2), background="#f0f0f0")
@@ -257,8 +276,9 @@ class ScreenRecorderApp:
     
     def register_hotkeys(self):
         # 注册全局快捷键
-        keyboard.add_hotkey('ctrl+alt+s', self.select_region)  # 新增区域选择快捷键
+        keyboard.add_hotkey('ctrl+alt+s', self.select_region)  # 区域选择快捷键
         keyboard.add_hotkey('ctrl+alt+r', self.toggle_recording)
+        keyboard.add_hotkey('ctrl+alt+h', self.toggle_window_visibility)  # 窗口显示/隐藏快捷键
         keyboard.add_hotkey('ctrl+alt+q', self.quit_app)
     
     def check_system_audio(self):
@@ -275,6 +295,9 @@ class ScreenRecorderApp:
     def select_region(self):
         """选择录制区域"""
         try:
+            # 保存当前窗口大小和位置
+            self.window_geometry = self.root.geometry()
+            
             # 隐藏主窗口
             self.root.withdraw()
             
@@ -283,8 +306,10 @@ class ScreenRecorderApp:
             self.root.wait_window(region_selector.top)
             region = region_selector.get_selection()
             
-            # 显示主窗口
+            # 显示主窗口并恢复大小和位置
             self.root.deiconify()
+            if hasattr(self, 'window_geometry'):
+                self.root.geometry(self.window_geometry)
             
             if region:
                 # 更新区域信息
@@ -295,6 +320,8 @@ class ScreenRecorderApp:
         except Exception as e:
             messagebox.showerror("错误", f"选择区域时出错: {str(e)}")
             self.root.deiconify()  # 确保主窗口重新显示
+            if hasattr(self, 'window_geometry'):
+                self.root.geometry(self.window_geometry)
     
     def toggle_recording(self):
         # 切换录制状态
@@ -309,6 +336,9 @@ class ScreenRecorderApp:
             if not self.region_selected or not self.current_region:
                 messagebox.showwarning("警告", "请先选择录制区域")
                 return
+                
+            # 保存当前窗口大小和位置
+            self.window_geometry = self.root.geometry()
                 
             # 更新输出目录
             self.output_dir = self.output_path_var.get().strip()
@@ -399,6 +429,10 @@ class ScreenRecorderApp:
                 self.record_button.config(text="开始录制", style='Accent.TButton')
                 self.select_region_button.config(state=tk.NORMAL)  # 恢复区域选择按钮
                 
+                # 恢复窗口大小和位置
+                if hasattr(self, 'window_geometry'):
+                    self.root.geometry(self.window_geometry)
+                
                 if output_file:
                     print(f"[调试] 输出文件: {output_file}")
                     self.status_label.config(text=f"录制完成: {output_file}")
@@ -436,6 +470,10 @@ class ScreenRecorderApp:
                 self.recording = False
                 self.record_button.config(text="开始录制", style='Accent.TButton')
                 self.select_region_button.config(state=tk.NORMAL)  # 恢复区域选择按钮
+                
+                # 恢复窗口大小和位置
+                if hasattr(self, 'window_geometry'):
+                    self.root.geometry(self.window_geometry)
             
             print("="*50 + "\n")
     
@@ -444,15 +482,23 @@ class ScreenRecorderApp:
         if self.recording:
             if messagebox.askyesno("确认退出", "录制正在进行中，确定要退出吗？"):
                 self.stop_recording()
-                self.root.quit()
+                self.cleanup_and_exit()
         else:
-            self.root.quit()
+            self.cleanup_and_exit()
     
     def run(self):
-        # 运行应用
-        self.root.protocol("WM_DELETE_WINDOW", self.quit_app)
+        # 设置关闭窗口时的行为
+        self.root.protocol("WM_DELETE_WINDOW", self.on_close)
         self.root.mainloop()
-
+        
+    def on_close(self):
+        """当用户点击窗口关闭按钮时，最小化到系统托盘"""
+        if TRAY_SUPPORT:
+            self.toggle_window_visibility()  # 隐藏窗口而不是退出
+            messagebox.showinfo("提示", "应用已最小化到系统托盘，按Ctrl+Alt+H可以重新显示窗口")
+        else:
+            self.quit_app()  # 如果不支持托盘，则直接退出
+    
     def update_region_info(self, region=None):
         """更新区域信息显示"""
         if region:
@@ -519,6 +565,67 @@ class ScreenRecorderApp:
         # 如果已经选择了区域，更新区域信息
         if self.current_region:
             self.update_region_info(self.current_region)
+
+    def toggle_window_visibility(self):
+        """切换窗口显示/隐藏状态"""
+        if self.window_visible:
+            # 保存当前窗口状态和位置
+            self.window_geometry = self.root.geometry()
+            self.root.withdraw()  # 隐藏窗口
+            self.window_visible = False
+            print("[调试] 窗口已隐藏")
+        else:
+            # 恢复窗口
+            self.root.deiconify()  # 显示窗口
+            if hasattr(self, 'window_geometry'):
+                self.root.geometry(self.window_geometry)  # 恢复之前的窗口大小和位置
+            self.window_visible = True
+            print("[调试] 窗口已显示")
+
+    def setup_tray(self):
+        """设置系统托盘图标和菜单"""
+        # 创建一个简单的图标
+        icon_data = self.create_app_icon()
+        
+        # 托盘菜单项
+        menu = (
+            item('显示/隐藏', self.toggle_window_visibility),
+            item('选择区域', self.select_region),
+            item('开始/停止录制', self.toggle_recording),
+            item('退出', self.quit_app)
+        )
+        
+        # 创建系统托盘图标
+        self.tray_icon = pystray.Icon("ScreenRecorder", icon_data, "即时录屏", menu)
+        
+        # 在单独的线程中启动托盘图标
+        self.tray_icon.run_detached()
+        
+    def create_app_icon(self):
+        """创建应用图标"""
+        # 创建一个简单的16x16图标，使用主色调
+        img = Image.new('RGB', (64, 64), color=COLORS["primary"])
+        draw = ImageDraw.Draw(img)
+        
+        # 添加一个录制按钮图标
+        draw.ellipse((16, 16, 48, 48), fill=COLORS["accent"])
+        
+        return img
+
+    def cleanup_and_exit(self):
+        """清理资源并退出应用"""
+        # 注销快捷键
+        try:
+            keyboard.unhook_all()
+        except:
+            pass
+            
+        # 销毁托盘图标
+        if TRAY_SUPPORT and hasattr(self, 'tray_icon'):
+            self.tray_icon.stop()
+            
+        # 退出应用
+        self.root.quit()
 
 if __name__ == "__main__":
     app = ScreenRecorderApp()
