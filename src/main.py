@@ -143,10 +143,6 @@ class ScreenRecorderApp:
         
         tk.Label(info_header_frame, text="录制区域信息:", font=("Arial", 9, "bold")).pack(side=tk.LEFT, anchor=tk.W)
         
-        # 添加预览按钮
-        self.preview_button = tk.Button(info_header_frame, text="查看截图", command=self.preview_region, state=tk.DISABLED, padx=5, pady=0)
-        self.preview_button.pack(side=tk.RIGHT)
-        
         self.region_info_label = tk.Label(region_info_frame, text="未选择", anchor=tk.W, fg="gray")
         self.region_info_label.pack(fill=tk.X, pady=(0, 5))
         
@@ -342,76 +338,12 @@ class ScreenRecorderApp:
                 text=info_text,
                 fg="green"
             )
-            
-            # 启用预览按钮
-            self.preview_button.config(state=tk.NORMAL)
         else:
             self.current_region = None
             self.region_info_label.config(
                 text="未选择",
                 fg="gray"
             )
-            
-            # 禁用预览按钮
-            self.preview_button.config(state=tk.DISABLED)
-    
-    def preview_region(self):
-        """显示当前录制区域的截图预览"""
-        if not self.current_region:
-            return
-            
-        try:
-            # 获取当前区域坐标
-            x, y, width, height = self.current_region
-            
-            # 获取区域截图
-            screenshot = ImageGrab.grab(bbox=(x, y, x+width, y+height))
-            
-            # 创建预览窗口
-            preview_window = tk.Toplevel(self.root)
-            preview_window.title("区域预览")
-            preview_window.attributes("-topmost", True)
-            
-            # 调整大小
-            max_size = 500
-            if width > max_size or height > max_size:
-                # 计算缩放比例
-                scale = min(max_size/width, max_size/height)
-                new_width = int(width * scale)
-                new_height = int(height * scale)
-                
-                screenshot = screenshot.resize((new_width, new_height))
-                
-                # 更新窗口标题包含缩放信息
-                if scale < 1:
-                    preview_window.title(f"区域预览 (缩放至 {int(scale*100)}%)")
-            
-            # 转换为Tkinter可用的图像
-            tk_image = ImageTk.PhotoImage(screenshot)
-            
-            # 显示图像
-            label = tk.Label(preview_window, image=tk_image)
-            label.image = tk_image  # 保持引用
-            label.pack(padx=10, pady=10)
-            
-            # 添加关闭按钮
-            close_button = tk.Button(preview_window, text="关闭", command=preview_window.destroy)
-            close_button.pack(pady=(0, 10))
-            
-            # 居中窗口
-            preview_window.update_idletasks()
-            screen_width = self.root.winfo_screenwidth()
-            screen_height = self.root.winfo_screenheight()
-            window_width = preview_window.winfo_width()
-            window_height = preview_window.winfo_height()
-            
-            x_position = (screen_width - window_width) // 2
-            y_position = (screen_height - window_height) // 2
-            
-            preview_window.geometry(f"+{x_position}+{y_position}")
-            
-        except Exception as e:
-            messagebox.showerror("预览错误", f"无法显示区域预览: {str(e)}")
 
 if __name__ == "__main__":
     app = ScreenRecorderApp()
