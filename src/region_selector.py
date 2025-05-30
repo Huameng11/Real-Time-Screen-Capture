@@ -7,6 +7,10 @@
 
 import tkinter as tk
 from PIL import ImageGrab, ImageTk, Image
+import ctypes
+import win32api
+import win32con
+import win32gui
 
 class RegionSelector:
     def __init__(self, parent):
@@ -17,9 +21,18 @@ class RegionSelector:
         self.current_y = None
         self.selection = None
         
+        # 获取屏幕信息
+        self.screen_width = win32api.GetSystemMetrics(win32con.SM_CXSCREEN)
+        self.screen_height = win32api.GetSystemMetrics(win32con.SM_CYSCREEN)
+        
+        # 获取实际的DPI缩放因子
+        user32 = ctypes.windll.user32
+        user32.SetProcessDPIAware()
+        
         # 创建一个透明的全屏窗口
         self.top = tk.Toplevel(parent)
-        self.top.attributes("-fullscreen", True)
+        self.top.overrideredirect(True)  # 无边框
+        self.top.geometry(f"{self.screen_width}x{self.screen_height}+0+0")  # 确保覆盖整个屏幕
         self.top.attributes("-alpha", 0.3)
         self.top.attributes("-topmost", True)
         
@@ -28,7 +41,8 @@ class RegionSelector:
         self.tk_image = ImageTk.PhotoImage(self.screenshot)
         
         # 创建一个填满屏幕的画布
-        self.canvas = tk.Canvas(self.top, cursor="cross", bg="grey")
+        self.canvas = tk.Canvas(self.top, cursor="cross", bg="grey", 
+                             width=self.screen_width, height=self.screen_height)
         self.canvas.pack(fill=tk.BOTH, expand=tk.YES)
         
         # 在画布上显示截图
@@ -36,7 +50,7 @@ class RegionSelector:
         
         # 创建带有指令的文本
         self.canvas.create_text(
-            self.screenshot.width // 2,
+            self.screen_width // 2,
             20,
             text="点击并拖动以选择区域，按Esc取消",
             fill="white",
@@ -56,11 +70,15 @@ class RegionSelector:
         self.top.update_idletasks()
         self.top.grab_set()
         self.top.wait_visibility()
+        
+        # 强制窗口到屏幕左上角
+        self.top.geometry(f"{self.screen_width}x{self.screen_height}+0+0")
+        self.top.update()
     
     def on_button_press(self, event):
         # 保存鼠标拖动的起始位置
-        self.start_x = self.canvas.canvasx(event.x)
-        self.start_y = self.canvas.canvasy(event.y)
+        self.start_x = event.x
+        self.start_y = event.y
         
         # 如果矩形尚不存在则创建
         if self.rect:
@@ -72,8 +90,8 @@ class RegionSelector:
     
     def on_mouse_drag(self, event):
         # 更新当前位置
-        self.current_x = self.canvas.canvasx(event.x)
-        self.current_y = self.canvas.canvasy(event.y)
+        self.current_x = event.x
+        self.current_y = event.y
         
         # 更新矩形
         self.canvas.coords(self.rect, self.start_x, self.start_y, self.current_x, self.current_y)
@@ -96,8 +114,8 @@ class RegionSelector:
     
     def on_button_release(self, event):
         # 更新当前位置
-        self.current_x = self.canvas.canvasx(event.x)
-        self.current_y = self.canvas.canvasy(event.y)
+        self.current_x = event.x
+        self.current_y = event.y
         
         # 计算选择区域
         x1 = min(self.start_x, self.current_x)
@@ -107,6 +125,7 @@ class RegionSelector:
         
         # 确保最小尺寸（10x10）
         if (x2 - x1) > 10 and (y2 - y1) > 10:
+            # 直接使用实际屏幕坐标
             self.selection = (int(x1), int(y1), int(x2 - x1), int(y2 - y1))
             self.top.destroy()
         else:
