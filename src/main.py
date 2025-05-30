@@ -31,6 +31,7 @@ class ScreenRecorderApp:
         self.recording = False
         self.output_dir = "C:\\Users\\admin\\desktop"
         self.current_region = None  # 添加存储当前区域信息
+        self.region_selected = False  # 新增：标记是否已选择区域
         os.makedirs(self.output_dir, exist_ok=True)
         
         # 设置UI和快捷键
@@ -120,7 +121,12 @@ class ScreenRecorderApp:
         buttons_frame = tk.Frame(self.root, padx=10, pady=10)
         buttons_frame.pack(fill=tk.X, pady=10)
         
-        self.record_button = tk.Button(buttons_frame, text="开始录制", command=self.toggle_recording, width=15, height=2)
+        # 区域选择按钮（新增）
+        self.select_region_button = tk.Button(buttons_frame, text="选择区域", command=self.select_region, width=15, height=2)
+        self.select_region_button.pack(side=tk.LEFT, padx=10)
+        
+        # 录制按钮（修改）- 初始时禁用
+        self.record_button = tk.Button(buttons_frame, text="开始录制", command=self.toggle_recording, width=15, height=2, state=tk.DISABLED)
         self.record_button.pack(side=tk.LEFT, padx=10)
         
         quit_button = tk.Button(buttons_frame, text="退出", command=self.quit_app, width=15, height=2)
@@ -151,6 +157,7 @@ class ScreenRecorderApp:
         hotkey_frame.pack(fill=tk.X, side=tk.BOTTOM, before=status_frame)
         
         tk.Label(hotkey_frame, text="快捷键:").pack(anchor=tk.W)
+        tk.Label(hotkey_frame, text="Ctrl+Alt+S: 选择录制区域").pack(anchor=tk.W)
         tk.Label(hotkey_frame, text="Ctrl+Alt+R: 开始/停止录制").pack(anchor=tk.W)
         tk.Label(hotkey_frame, text="Ctrl+Alt+Q: 退出应用").pack(anchor=tk.W)
         
@@ -159,6 +166,7 @@ class ScreenRecorderApp:
     
     def register_hotkeys(self):
         # 注册全局快捷键
+        keyboard.add_hotkey('ctrl+alt+s', self.select_region)  # 新增区域选择快捷键
         keyboard.add_hotkey('ctrl+alt+r', self.toggle_recording)
         keyboard.add_hotkey('ctrl+alt+q', self.quit_app)
     
@@ -173,6 +181,34 @@ class ScreenRecorderApp:
             self.system_audio_status.config(text=f"系统声音: 不可用", fg="red")
             messagebox.showwarning("系统声音检测", f"系统声音录制可能不可用: {message}")
     
+    def select_region(self):
+        """选择录制区域"""
+        try:
+            # 隐藏主窗口
+            self.root.withdraw()
+            
+            # 创建区域选择器
+            region_selector = RegionSelector(self.root)
+            self.root.wait_window(region_selector.top)
+            region = region_selector.get_selection()
+            
+            # 显示主窗口
+            self.root.deiconify()
+            
+            if region:
+                # 更新区域信息
+                self.update_region_info(region)
+                self.region_selected = True
+                
+                # 启用录制按钮
+                self.record_button.config(state=tk.NORMAL)
+                self.status_label.config(text="区域已选择，可以开始录制")
+            else:
+                self.status_label.config(text="区域选择已取消")
+        except Exception as e:
+            messagebox.showerror("错误", f"选择区域时出错: {str(e)}")
+            self.root.deiconify()  # 确保主窗口重新显示
+    
     def toggle_recording(self):
         # 切换录制状态
         if self.recording:
@@ -182,6 +218,11 @@ class ScreenRecorderApp:
     
     def start_recording(self):
         try:
+            # 检查是否已选择区域
+            if not self.region_selected or not self.current_region:
+                messagebox.showwarning("警告", "请先选择录制区域")
+                return
+                
             # 更新输出目录
             self.output_dir = self.output_path_var.get().strip()
             if not self.output_dir:
@@ -194,24 +235,10 @@ class ScreenRecorderApp:
             except Exception as e:
                 messagebox.showerror("错误", f"无法创建输出目录: {str(e)}")
                 return
-                
-            # 区域录制模式
-            self.root.withdraw()  # 隐藏主窗口
-            region_selector = RegionSelector(self.root)
-            self.root.wait_window(region_selector.top)
-            region = region_selector.get_selection()
-            self.root.deiconify()  # 显示主窗口
             
-            if not region:
-                self.status_label.config(text="录制已取消")
-                return
-            
-            # 更新录制区域信息显示
-            self.update_region_info(region)
-            
-            # 使用选定区域启动录制器
+            # 使用已选定区域启动录制器
             self.recorder = ScreenRecorder(
-                region=region,
+                region=self.current_region,
                 output_dir=self.output_dir,
                 fps=int(self.fps_var.get())
             )
@@ -220,6 +247,7 @@ class ScreenRecorderApp:
             self.recorder.start()
             self.recording = True
             self.record_button.config(text="停止录制")
+            self.select_region_button.config(state=tk.DISABLED)  # 录制时禁用区域选择
             self.status_label.config(text="录制中...")
             
             # 检查是否有录制警告
@@ -256,7 +284,7 @@ class ScreenRecorderApp:
                 self.recorder = None
                 self.recording = False
                 self.record_button.config(text="开始录制")
-                self.update_region_info(None)
+                self.select_region_button.config(state=tk.NORMAL)  # 恢复区域选择按钮
                 
                 if output_file:
                     print(f"[调试] 输出文件: {output_file}")
@@ -294,6 +322,7 @@ class ScreenRecorderApp:
                 self.recorder = None
                 self.recording = False
                 self.record_button.config(text="开始录制")
+                self.select_region_button.config(state=tk.NORMAL)  # 恢复区域选择按钮
             
             print("="*50 + "\n")
     
@@ -340,10 +369,13 @@ class ScreenRecorderApp:
             )
         else:
             self.current_region = None
+            self.region_selected = False  # 重置区域选择状态
             self.region_info_label.config(
                 text="未选择",
                 fg="gray"
             )
+            # 禁用录制按钮
+            self.record_button.config(state=tk.DISABLED)
 
 if __name__ == "__main__":
     app = ScreenRecorderApp()
