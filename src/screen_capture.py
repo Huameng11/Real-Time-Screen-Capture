@@ -43,6 +43,13 @@ class ScreenRecorder:
         self.system_audio_thread = None
         self.mic_audio_thread = None
         
+        # 录制状态错误信息
+        self.error_messages = {
+            "system_audio": None,
+            "mic_audio": None,
+            "video": None
+        }
+        
         # 如果提供了窗口句柄但没有区域，则获取窗口区域
         if self.window_handle and not self.region:
             self.region = self._get_window_region(self.window_handle)
@@ -53,42 +60,117 @@ class ScreenRecorder:
         x, y, w, h = rect[0], rect[1], rect[2] - rect[0], rect[3] - rect[1]
         return (x, y, w, h)
     
+    def test_system_audio(self):
+        """测试系统音频录制功能是否可用，返回(是否可用, 错误信息)"""
+        try:
+            print(f"[调试] 开始测试系统音频录制功能")
+            
+            # 获取带有回路(loopback)功能的录音设备
+            loopback_devices = sc.all_microphones(include_loopback=True)
+            print(f"[调试] 检测到的回路设备: {loopback_devices}")
+            
+            # 过滤出真正的回路设备（通常是扬声器设备的回路）
+            speaker_loopbacks = [device for device in loopback_devices if 'Speaker' in str(device) or '扬声器' in str(device)]
+            print(f"[调试] 扬声器回路设备: {speaker_loopbacks}")
+            
+            if not speaker_loopbacks:
+                print(f"[错误] 未找到系统声音回路设备")
+                return False, "未找到系统声音回路设备，无法录制系统声音"
+            
+            # 使用第一个回路设备
+            loopback_device = speaker_loopbacks[0]
+            print(f"[调试] 使用系统声音回路设备: {loopback_device}")
+            
+            # 尝试创建录音机
+            print(f"[调试] 尝试创建录音机实例...")
+            with loopback_device.recorder(samplerate=44100, channels=2, blocksize=1024) as recorder:
+                print(f"[调试] 录音机实例创建成功，尝试录制测试数据...")
+                # 尝试录制一小段
+                data = recorder.record(100)  # 只录制100帧进行测试
+                print(f"[调试] 测试数据录制完成，数据形状: {data.shape if data is not None else 'None'}")
+                
+                if data is None or len(data) == 0:
+                    print(f"[错误] 录制测试返回空数据")
+                    return False, "录制测试返回空数据"
+                
+                # 检查音频数据是否全为0或接近0(静音)
+                max_amplitude = np.max(np.abs(data))
+                print(f"[调试] 测试数据最大振幅: {max_amplitude}")
+                
+                if max_amplitude < 0.0001:
+                    print(f"[警告] 录音设备工作，但可能未检测到声音（系统静音或没有播放内容）")
+                    return True, "录音设备工作，但可能未检测到声音（可能是系统静音或没有播放内容）"
+                
+                print(f"[调试] 系统声音录制功能正常")
+                return True, "系统声音录制功能正常"
+        except Exception as e:
+            error_msg = f"系统声音录制测试失败: {str(e)}"
+            print(f"[错误] {error_msg}")
+            import traceback
+            traceback.print_exc()
+            return False, error_msg
+    
+    def test_mic_audio(self):
+        """测试麦克风录制功能是否可用，返回(是否可用, 错误信息)"""
+        try:
+            # 获取默认麦克风
+            microphones = sc.all_microphones()
+            if not microphones:
+                return False, "未找到麦克风设备"
+            
+            default_mic = microphones[0]
+            
+            # 尝试创建录音机
+            with default_mic.recorder(samplerate=44100, channels=1, blocksize=1024) as recorder:
+                # 尝试录制一小段
+                data = recorder.record(100)  # 只录制100帧进行测试
+                if data is None or len(data) == 0:
+                    return False, "录制测试返回空数据"
+                
+                return True, "麦克风录制功能正常"
+        except Exception as e:
+            return False, f"麦克风录制测试失败: {str(e)}"
+    
     def _record_video(self):
         """视频录制线程函数"""
-        left, top, width, height = self.region
-        
-        # 初始化视频写入器
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        out = cv2.VideoWriter(self.video_path, fourcc, self.fps, (width, height))
-        
-        # 初始化屏幕捕获
-        with mss.mss() as sct:
-            monitor = {"left": left, "top": top, "width": width, "height": height}
+        try:
+            left, top, width, height = self.region
             
-            # 记录帧
-            frame_count = 0
-            start_time = time.time()
+            # 初始化视频写入器
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            out = cv2.VideoWriter(self.video_path, fourcc, self.fps, (width, height))
             
-            while self.running:
-                # 捕获屏幕
-                frame = np.array(sct.grab(monitor))
+            # 初始化屏幕捕获
+            with mss.mss() as sct:
+                monitor = {"left": left, "top": top, "width": width, "height": height}
                 
-                # 转换为BGR格式（OpenCV格式）
-                frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
+                # 记录帧
+                frame_count = 0
+                start_time = time.time()
                 
-                # 写入视频文件
-                out.write(frame)
-                
-                frame_count += 1
-                
-                # 维持帧率
-                elapsed_time = time.time() - start_time
-                sleep_time = (frame_count / self.fps) - elapsed_time
-                if sleep_time > 0:
-                    time.sleep(sleep_time)
-        
-        # 释放资源
-        out.release()
+                while self.running:
+                    # 捕获屏幕
+                    frame = np.array(sct.grab(monitor))
+                    
+                    # 转换为BGR格式（OpenCV格式）
+                    frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
+                    
+                    # 写入视频文件
+                    out.write(frame)
+                    
+                    frame_count += 1
+                    
+                    # 维持帧率
+                    elapsed_time = time.time() - start_time
+                    sleep_time = (frame_count / self.fps) - elapsed_time
+                    if sleep_time > 0:
+                        time.sleep(sleep_time)
+            
+            # 释放资源
+            out.release()
+        except Exception as e:
+            self.error_messages["video"] = f"录制视频时出错: {str(e)}"
+            print(self.error_messages["video"])
     
     def _record_system_audio(self):
         """系统音频录制线程函数"""
@@ -97,29 +179,98 @@ class ScreenRecorder:
             sample_rate = 44100  # Hz
             block_size = 1024
             
-            # 获取默认扬声器
-            speakers = sc.all_speakers()
-            if not speakers:
-                print("未找到扬声器")
-                return
+            print(f"[调试] 开始尝试录制系统音频")
+            
+            # 获取回路录音设备
+            try:
+                # 获取带有回路功能的录音设备
+                loopback_devices = sc.all_microphones(include_loopback=True)
+                print(f"[调试] 检测到的回路设备: {loopback_devices}")
                 
-            default_speaker = speakers[0]
+                # 过滤出真正的回路设备（通常是扬声器设备的回路）
+                speaker_loopbacks = [device for device in loopback_devices if 'Speaker' in str(device) or '扬声器' in str(device)]
+                print(f"[调试] 扬声器回路设备: {speaker_loopbacks}")
+                
+                if not speaker_loopbacks:
+                    error_msg = "未找到系统声音回路设备，无法录制系统声音"
+                    self.error_messages["system_audio"] = error_msg
+                    print(f"[错误] {error_msg}")
+                    return
+                    
+                # 使用第一个回路设备
+                loopback_device = speaker_loopbacks[0]
+                print(f"[调试] 使用系统声音回路设备: {loopback_device}")
+            except Exception as e:
+                error_msg = f"获取系统声音回路设备时出错: {str(e)}"
+                self.error_messages["system_audio"] = error_msg
+                print(f"[错误] {error_msg}")
+                import traceback
+                traceback.print_exc()
+                return
             
             # 打开音频文件进行写入
-            with wave.open(self.system_audio_path, 'wb') as wf:
-                wf.setnchannels(2)  # 立体声
-                wf.setsampwidth(2)  # 16位
-                wf.setframerate(sample_rate)
-                
-                # 录制系统音频
-                with default_speaker.recorder(samplerate=sample_rate, channels=2, blocksize=block_size) as recorder:
-                    while self.running:
-                        data = recorder.record(block_size)
-                        # 转换为int16 PCM
-                        audio_data = (data * 32767).astype(np.int16)
-                        wf.writeframes(audio_data.tobytes())
+            try:
+                with wave.open(self.system_audio_path, 'wb') as wf:
+                    wf.setnchannels(2)  # 立体声
+                    wf.setsampwidth(2)  # 16位
+                    wf.setframerate(sample_rate)
+                    print(f"[调试] 已创建音频文件: {self.system_audio_path}")
+                    
+                    # 录制系统音频
+                    try:
+                        print(f"[调试] 开始创建录音机实例...")
+                        with loopback_device.recorder(samplerate=sample_rate, channels=2, blocksize=block_size) as recorder:
+                            print(f"[调试] 录音机实例创建成功")
+                            empty_frames = 0  # 计数器，记录连续的空帧
+                            frames_recorded = 0  # 记录已录制的帧数
+                            
+                            while self.running:
+                                try:
+                                    print(f"[调试] 正在录制第 {frames_recorded+1} 个音频块...") if frames_recorded < 5 else None
+                                    data = recorder.record(block_size)
+                                    frames_recorded += 1
+                                    
+                                    # 检查是否有实际声音数据
+                                    max_amplitude = np.max(np.abs(data))
+                                    if max_amplitude < 0.0001:
+                                        empty_frames += 1
+                                        if empty_frames == 1 or empty_frames % 50 == 0:  # 第一帧为空或每隔约1秒检查一次
+                                            print(f"[警告] 系统声音似乎没有被捕获 ({empty_frames} 个空帧), 最大振幅: {max_amplitude}")
+                                    else:
+                                        if empty_frames > 0:
+                                            print(f"[调试] 检测到有效音频数据，最大振幅: {max_amplitude}")
+                                        empty_frames = 0  # 重置计数器
+                                    
+                                    # 转换为int16 PCM
+                                    audio_data = (data * 32767).astype(np.int16)
+                                    wf.writeframes(audio_data.tobytes())
+                                    
+                                    if frames_recorded == 5:
+                                        print(f"[调试] 已成功录制初始音频块，继续录制中...")
+                                except Exception as e:
+                                    error_msg = f"录制音频数据时出错: {str(e)}"
+                                    print(f"[错误] {error_msg}")
+                                    import traceback
+                                    traceback.print_exc()
+                                    # 尝试继续录制而不中断
+                    except Exception as e:
+                        error_msg = f"创建录音机实例时出错: {str(e)}"
+                        self.error_messages["system_audio"] = error_msg
+                        print(f"[错误] {error_msg}")
+                        import traceback
+                        traceback.print_exc()
+            except Exception as e:
+                error_msg = f"创建音频文件时出错: {str(e)}"
+                self.error_messages["system_audio"] = error_msg
+                print(f"[错误] {error_msg}")
+                import traceback
+                traceback.print_exc()
         except Exception as e:
-            print(f"录制系统音频时出错: {e}")
+            error_msg = f"录制系统音频时出错: {str(e)}"
+            self.error_messages["system_audio"] = error_msg
+            print(f"[错误] {error_msg}")
+            import traceback
+            traceback.print_exc()
     
     def _record_mic_audio(self):
         """麦克风音频录制线程函数"""
@@ -131,7 +282,8 @@ class ScreenRecorder:
             # 获取默认麦克风
             microphones = sc.all_microphones()
             if not microphones:
-                print("未找到麦克风")
+                self.error_messages["mic_audio"] = "未找到麦克风"
+                print(self.error_messages["mic_audio"])
                 return
                 
             default_mic = microphones[0]
@@ -150,7 +302,8 @@ class ScreenRecorder:
                         audio_data = (data * 32767).astype(np.int16)
                         wf.writeframes(audio_data.tobytes())
         except Exception as e:
-            print(f"录制麦克风音频时出错: {e}")
+            self.error_messages["mic_audio"] = f"录制麦克风音频时出错: {str(e)}"
+            print(self.error_messages["mic_audio"])
     
     def _merge_audio_video(self):
         """合并音频和视频文件到单个输出文件"""
@@ -202,6 +355,29 @@ class ScreenRecorder:
         """开始录制"""
         if self.running:
             return
+        
+        # 重置错误信息
+        self.error_messages = {
+            "system_audio": None,
+            "mic_audio": None,
+            "video": None
+        }
+        
+        # 测试系统声音录制（如果需要）
+        if self.record_system_audio:
+            success, message = self.test_system_audio()
+            if not success:
+                print(f"警告: {message}")
+                # 不阻止录制，但保存错误信息
+                self.error_messages["system_audio"] = message
+        
+        # 测试麦克风录制（如果需要）
+        if self.record_mic:
+            success, message = self.test_mic_audio()
+            if not success:
+                print(f"警告: {message}")
+                # 不阻止录制，但保存错误信息
+                self.error_messages["mic_audio"] = message
         
         self.running = True
         
@@ -256,4 +432,4 @@ class ScreenRecorder:
         except Exception as e:
             print(f"清理临时文件时出错: {e}")
         
-        return output_path 
+        return output_path, self.error_messages 
