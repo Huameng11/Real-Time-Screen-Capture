@@ -22,13 +22,13 @@ class ScreenRecorderApp:
         # 初始化主窗口
         self.root = tk.Tk()
         self.root.title("即时录屏")
-        self.root.geometry("400x300")
+        self.root.geometry("400x350")  # 增加高度以容纳新控件
         self.root.resizable(False, False)
         
         # 初始化录制状态和路径
         self.recorder = None
         self.recording = False
-        self.output_dir = os.path.join(os.path.expanduser("~"), "Videos", "ScreenRecordings")
+        self.output_dir = "C:\\Users\\admin\\desktop"
         os.makedirs(self.output_dir, exist_ok=True)
         
         # 设置UI和快捷键
@@ -52,6 +52,17 @@ class ScreenRecorderApp:
         self.record_mic = tk.BooleanVar(value=False)
         tk.Checkbutton(options_frame, text="系统声音", variable=self.record_system_audio).grid(row=1, column=1, sticky=tk.W)
         tk.Checkbutton(options_frame, text="麦克风", variable=self.record_mic).grid(row=1, column=2, sticky=tk.W)
+        
+        # 输出路径选择框架
+        path_frame = tk.Frame(self.root, padx=10, pady=5)
+        path_frame.pack(fill=tk.X)
+        
+        tk.Label(path_frame, text="输出路径:").pack(anchor=tk.W, pady=(5, 0))
+        
+        # 输出路径输入框
+        self.output_path_var = tk.StringVar(value=self.output_dir)
+        self.output_path_entry = tk.Entry(path_frame, textvariable=self.output_path_var, width=50)
+        self.output_path_entry.pack(fill=tk.X, pady=(0, 5))
         
         # 按钮框架
         buttons_frame = tk.Frame(self.root, padx=10, pady=10)
@@ -92,6 +103,19 @@ class ScreenRecorderApp:
     
     def start_recording(self):
         try:
+            # 更新输出目录
+            self.output_dir = self.output_path_var.get().strip()
+            if not self.output_dir:
+                messagebox.showerror("错误", "请输入有效的输出路径")
+                return
+                
+            # 确保输出目录存在
+            try:
+                os.makedirs(self.output_dir, exist_ok=True)
+            except Exception as e:
+                messagebox.showerror("错误", f"无法创建输出目录: {str(e)}")
+                return
+                
             if self.record_type.get() == "region":
                 # 区域录制模式
                 self.root.withdraw()  # 隐藏主窗口
