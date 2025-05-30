@@ -1,19 +1,27 @@
 """
-文件名: region_selector.py
+文件名: core/region_selector.py
 功能: 提供屏幕区域选择功能，允许用户通过鼠标拖拽在屏幕上选择一个矩形区域进行录制。
      创建半透明覆盖层显示当前屏幕内容，并在用户拖拽时绘制醒目的矩形框标识选择区域，
      同时实时显示所选区域的尺寸信息，确保用户可以精确选择所需区域。
 """
 
 import tkinter as tk
-from PIL import ImageGrab, ImageTk, Image
+from PIL import ImageGrab, ImageTk
 import ctypes
 import win32api
 import win32con
 import win32gui
+from functools import lru_cache
 
 class RegionSelector:
+    """屏幕区域选择器类"""
+    
     def __init__(self, parent):
+        """初始化区域选择器
+        
+        Args:
+            parent: 父窗口实例
+        """
         self.parent = parent
         self.start_x = None
         self.start_y = None
@@ -22,27 +30,22 @@ class RegionSelector:
         self.selection = None
         
         # 获取屏幕信息
-        self.screen_width = win32api.GetSystemMetrics(win32con.SM_CXSCREEN)
-        self.screen_height = win32api.GetSystemMetrics(win32con.SM_CYSCREEN)
-        
-        # 获取实际的DPI缩放因子
-        user32 = ctypes.windll.user32
-        user32.SetProcessDPIAware()
+        self.screen_info = self._get_screen_info()
         
         # 创建一个透明的全屏窗口
         self.top = tk.Toplevel(parent)
         self.top.overrideredirect(True)  # 无边框
-        self.top.geometry(f"{self.screen_width}x{self.screen_height}+0+0")  # 确保覆盖整个屏幕
+        self.top.geometry(f"{self.screen_info['width']}x{self.screen_info['height']}+0+0")  # 确保覆盖整个屏幕
         self.top.attributes("-alpha", 0.4)  # 提高透明度，使背景更清晰
         self.top.attributes("-topmost", True)
         
         # 截取屏幕作为背景
-        self.screenshot = ImageGrab.grab()
+        self.screenshot = self._capture_screen()
         self.tk_image = ImageTk.PhotoImage(self.screenshot)
         
         # 创建一个填满屏幕的画布
         self.canvas = tk.Canvas(self.top, cursor="cross", bg="grey", 
-                             width=self.screen_width, height=self.screen_height)
+                             width=self.screen_info['width'], height=self.screen_info['height'])
         self.canvas.pack(fill=tk.BOTH, expand=tk.YES)
         
         # 在画布上显示截图
@@ -50,7 +53,7 @@ class RegionSelector:
         
         # 创建带有指令的文本 - 增加可见性
         self.instruction_text = self.canvas.create_text(
-            self.screen_width // 2,
+            self.screen_info['width'] // 2,
             30,
             text="点击并拖动以选择区域，按Esc取消",
             fill="white",
@@ -89,10 +92,42 @@ class RegionSelector:
         self.top.wait_visibility()
         
         # 强制窗口到屏幕左上角
-        self.top.geometry(f"{self.screen_width}x{self.screen_height}+0+0")
+        self.top.geometry(f"{self.screen_info['width']}x{self.screen_info['height']}+0+0")
         self.top.update()
     
+    @lru_cache(maxsize=1)
+    def _get_screen_info(self):
+        """获取屏幕信息
+        
+        Returns:
+            dict: 包含屏幕宽度和高度的字典
+        """
+        # 获取实际的DPI缩放因子
+        user32 = ctypes.windll.user32
+        user32.SetProcessDPIAware()
+        
+        width = win32api.GetSystemMetrics(win32con.SM_CXSCREEN)
+        height = win32api.GetSystemMetrics(win32con.SM_CYSCREEN)
+        
+        return {
+            'width': width,
+            'height': height
+        }
+    
+    def _capture_screen(self):
+        """捕获整个屏幕
+        
+        Returns:
+            PIL.Image: 屏幕截图
+        """
+        return ImageGrab.grab()
+    
     def on_button_press(self, event):
+        """鼠标按下事件处理
+        
+        Args:
+            event: 事件对象
+        """
         # 保存鼠标拖动的起始位置
         self.start_x = event.x
         self.start_y = event.y
@@ -113,6 +148,11 @@ class RegionSelector:
         )
     
     def on_mouse_drag(self, event):
+        """鼠标拖动事件处理
+        
+        Args:
+            event: 事件对象
+        """
         # 更新当前位置
         self.current_x = event.x
         self.current_y = event.y
@@ -159,6 +199,11 @@ class RegionSelector:
         self.canvas.tag_lower(self.size_text_bg, self.size_text)
     
     def on_button_release(self, event):
+        """鼠标释放事件处理
+        
+        Args:
+            event: 事件对象
+        """
         # 更新当前位置
         self.current_x = event.x
         self.current_y = event.y
@@ -178,8 +223,8 @@ class RegionSelector:
             # 如果太小则重置并显示提示
             self._clear_drawn_items()
             min_size_text = self.canvas.create_text(
-                self.screen_width // 2,
-                self.screen_height // 2,
+                self.screen_info['width'] // 2,
+                self.screen_info['height'] // 2,
                 text="选择区域太小，请重试（至少10×10像素）",
                 fill="white",
                 font=("Arial", 16, "bold")
@@ -198,20 +243,29 @@ class RegionSelector:
             ])
     
     def _clear_drawn_items(self):
-        """清除已绘制的所有图形元素"""
+        """清除画布上的所有绘制项"""
         for item in [self.rect, self.rect_shadow, self.size_text, self.size_text_bg]:
             if item:
                 self.canvas.delete(item)
+        
         self.rect = None
         self.rect_shadow = None
         self.size_text = None
         self.size_text_bg = None
     
     def cancel(self, event=None):
-        # 取消选择
+        """取消选择
+        
+        Args:
+            event: 事件对象
+        """
         self.selection = None
         self.top.destroy()
     
     def get_selection(self):
-        # 返回选择的区域
+        """获取选择的区域
+        
+        Returns:
+            tuple: 选择的区域 (x, y, width, height)，如果未选择则返回None
+        """
         return self.selection 
