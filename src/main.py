@@ -13,6 +13,7 @@ import keyboard
 import tkinter as tk
 from tkinter import messagebox, ttk
 import platform
+from PIL import ImageGrab, ImageTk
 
 from screen_capture import ScreenRecorder
 from region_selector import RegionSelector
@@ -22,13 +23,14 @@ class ScreenRecorderApp:
         # 初始化主窗口
         self.root = tk.Tk()
         self.root.title("即时录屏")
-        self.root.geometry("400x350")  # 减小高度，因为减少了控件
+        self.root.geometry("400x400")  # 增加高度，以适应新增控件
         self.root.resizable(False, False)
         
         # 初始化录制状态和路径
         self.recorder = None
         self.recording = False
         self.output_dir = "C:\\Users\\admin\\desktop"
+        self.current_region = None  # 添加存储当前区域信息
         os.makedirs(self.output_dir, exist_ok=True)
         
         # 设置UI和快捷键
@@ -99,6 +101,21 @@ class ScreenRecorderApp:
         self.system_audio_status = tk.Label(audio_frame, text="系统声音: 检测中...", fg="gray")
         self.system_audio_status.pack(anchor=tk.W, pady=5)
         
+        # 录制参数框架
+        params_frame = tk.Frame(self.root, padx=10, pady=5)
+        params_frame.pack(fill=tk.X)
+        
+        # 帧率选择
+        fps_frame = tk.Frame(params_frame)
+        fps_frame.pack(fill=tk.X, pady=5)
+        
+        tk.Label(fps_frame, text="帧率:").pack(side=tk.LEFT, padx=(0, 5))
+        self.fps_var = tk.StringVar(value="30")
+        fps_values = ["15", "24", "30", "60"]
+        fps_combobox = ttk.Combobox(fps_frame, textvariable=self.fps_var, values=fps_values, width=5, state="readonly")
+        fps_combobox.pack(side=tk.LEFT)
+        tk.Label(fps_frame, text="FPS").pack(side=tk.LEFT, padx=(5, 0))
+        
         # 按钮框架
         buttons_frame = tk.Frame(self.root, padx=10, pady=10)
         buttons_frame.pack(fill=tk.X, pady=10)
@@ -115,6 +132,23 @@ class ScreenRecorderApp:
         
         self.status_label = tk.Label(status_frame, text="就绪", bd=1, relief=tk.SUNKEN, anchor=tk.W)
         self.status_label.pack(fill=tk.X)
+        
+        # 录制区域信息框架
+        region_info_frame = tk.Frame(self.root, padx=10, pady=5)
+        region_info_frame.pack(fill=tk.X, side=tk.BOTTOM, before=status_frame)
+        
+        # 标题和内容分开显示
+        info_header_frame = tk.Frame(region_info_frame)
+        info_header_frame.pack(fill=tk.X)
+        
+        tk.Label(info_header_frame, text="录制区域信息:", font=("Arial", 9, "bold")).pack(side=tk.LEFT, anchor=tk.W)
+        
+        # 添加预览按钮
+        self.preview_button = tk.Button(info_header_frame, text="查看截图", command=self.preview_region, state=tk.DISABLED, padx=5, pady=0)
+        self.preview_button.pack(side=tk.RIGHT)
+        
+        self.region_info_label = tk.Label(region_info_frame, text="未选择", anchor=tk.W, fg="gray")
+        self.region_info_label.pack(fill=tk.X, pady=(0, 5))
         
         # 快捷键信息
         hotkey_frame = tk.Frame(self.root, padx=10, pady=10)
@@ -176,10 +210,14 @@ class ScreenRecorderApp:
                 self.status_label.config(text="录制已取消")
                 return
             
+            # 更新录制区域信息显示
+            self.update_region_info(region)
+            
             # 使用选定区域启动录制器
             self.recorder = ScreenRecorder(
                 region=region,
-                output_dir=self.output_dir
+                output_dir=self.output_dir,
+                fps=int(self.fps_var.get())
             )
             
             # 开始录制
@@ -222,6 +260,7 @@ class ScreenRecorderApp:
                 self.recorder = None
                 self.recording = False
                 self.record_button.config(text="开始录制")
+                self.update_region_info(None)
                 
                 if output_file:
                     print(f"[调试] 输出文件: {output_file}")
@@ -275,6 +314,104 @@ class ScreenRecorderApp:
         # 运行应用
         self.root.protocol("WM_DELETE_WINDOW", self.quit_app)
         self.root.mainloop()
+
+    def update_region_info(self, region=None):
+        """更新区域信息显示"""
+        if region:
+            x, y, width, height = region
+            self.current_region = region
+            
+            # 计算屏幕分辨率百分比
+            screen_width = self.root.winfo_screenwidth()
+            screen_height = self.root.winfo_screenheight()
+            width_percent = round((width / screen_width) * 100, 1)
+            height_percent = round((height / screen_height) * 100, 1)
+            
+            # 获取当前帧率
+            fps = self.fps_var.get()
+            
+            # 创建更详细的区域信息
+            info_text = (
+                f"分辨率: {width} × {height} 像素\n"
+                f"屏幕占比: 宽 {width_percent}%, 高 {height_percent}%\n"
+                f"位置: 左上角 ({x}, {y})\n"
+                f"帧率: {fps} FPS"
+            )
+            
+            self.region_info_label.config(
+                text=info_text,
+                fg="green"
+            )
+            
+            # 启用预览按钮
+            self.preview_button.config(state=tk.NORMAL)
+        else:
+            self.current_region = None
+            self.region_info_label.config(
+                text="未选择",
+                fg="gray"
+            )
+            
+            # 禁用预览按钮
+            self.preview_button.config(state=tk.DISABLED)
+    
+    def preview_region(self):
+        """显示当前录制区域的截图预览"""
+        if not self.current_region:
+            return
+            
+        try:
+            # 获取当前区域坐标
+            x, y, width, height = self.current_region
+            
+            # 获取区域截图
+            screenshot = ImageGrab.grab(bbox=(x, y, x+width, y+height))
+            
+            # 创建预览窗口
+            preview_window = tk.Toplevel(self.root)
+            preview_window.title("区域预览")
+            preview_window.attributes("-topmost", True)
+            
+            # 调整大小
+            max_size = 500
+            if width > max_size or height > max_size:
+                # 计算缩放比例
+                scale = min(max_size/width, max_size/height)
+                new_width = int(width * scale)
+                new_height = int(height * scale)
+                
+                screenshot = screenshot.resize((new_width, new_height))
+                
+                # 更新窗口标题包含缩放信息
+                if scale < 1:
+                    preview_window.title(f"区域预览 (缩放至 {int(scale*100)}%)")
+            
+            # 转换为Tkinter可用的图像
+            tk_image = ImageTk.PhotoImage(screenshot)
+            
+            # 显示图像
+            label = tk.Label(preview_window, image=tk_image)
+            label.image = tk_image  # 保持引用
+            label.pack(padx=10, pady=10)
+            
+            # 添加关闭按钮
+            close_button = tk.Button(preview_window, text="关闭", command=preview_window.destroy)
+            close_button.pack(pady=(0, 10))
+            
+            # 居中窗口
+            preview_window.update_idletasks()
+            screen_width = self.root.winfo_screenwidth()
+            screen_height = self.root.winfo_screenheight()
+            window_width = preview_window.winfo_width()
+            window_height = preview_window.winfo_height()
+            
+            x_position = (screen_width - window_width) // 2
+            y_position = (screen_height - window_height) // 2
+            
+            preview_window.geometry(f"+{x_position}+{y_position}")
+            
+        except Exception as e:
+            messagebox.showerror("预览错误", f"无法显示区域预览: {str(e)}")
 
 if __name__ == "__main__":
     app = ScreenRecorderApp()
