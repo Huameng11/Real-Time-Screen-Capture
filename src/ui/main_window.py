@@ -29,8 +29,8 @@ class MainWindow:
         # 创建窗口
         self.root = tk.Tk()
         self.root.title("即时录屏")
-        self.root.geometry("450x550")
-        self.root.minsize(450, 550)
+        self.root.geometry("450x480")
+        self.root.minsize(450, 480)
         
         # 设置主题和样式
         self.setup_theme()
@@ -56,29 +56,11 @@ class MainWindow:
         """创建主窗口界面"""
         # 主容器
         main_frame = ttk.Frame(self.root)
-        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-        
-        # 头部标题
-        header = ttk.Frame(main_frame)
-        header.pack(fill=tk.X, pady=(0, 20))
-        
-        title_label = ttk.Label(
-            header, 
-            text="即时录屏", 
-            style="Heading.TLabel"
-        )
-        title_label.pack(side=tk.LEFT)
-        
-        version_label = ttk.Label(
-            header, 
-            text="v1.0.0", 
-            style="Small.TLabel"
-        )
-        version_label.pack(side=tk.RIGHT)
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
         
         # 设置面板
         self.settings_panel = SettingsPanel(main_frame, self.app.config)
-        self.settings_panel.pack(fill=tk.BOTH, expand=True, pady=5)
+        self.settings_panel.pack(fill=tk.BOTH, expand=True, pady=2)
         
         # 控制面板
         self.control_panel = ControlPanel(
@@ -86,7 +68,7 @@ class MainWindow:
             select_region_command=self.app.select_region,
             toggle_record_command=self.app.toggle_recording
         )
-        self.control_panel.pack(fill=tk.BOTH, expand=True, pady=5)
+        self.control_panel.pack(fill=tk.BOTH, expand=True, pady=2)
         
         # 状态栏
         status_frame = ttk.Frame(main_frame)

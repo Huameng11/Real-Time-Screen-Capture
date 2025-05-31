@@ -35,17 +35,9 @@ class SettingsPanel(ttk.Frame):
     
     def setup_ui(self):
         """设置界面布局"""
-        # 面板标题
-        self.title_label = ttk.Label(
-            self, 
-            text="录制设置", 
-            style="Title.TLabel"
-        )
-        self.title_label.pack(fill="x", padx=5, pady=(10, 5))
-        
-        # 设置选项容器
-        settings_container = ttk.Frame(self)
-        settings_container.pack(fill="both", expand=True, padx=10, pady=5)
+        # 使用LabelFrame替代普通Frame，提供边框和标题
+        settings_container = ttk.LabelFrame(self, text="录制设置", padding=(5, 5, 5, 5))
+        settings_container.pack(fill="both", expand=True, padx=5, pady=5)
         
         # === 输出目录设置 ===
         dir_frame = ttk.Frame(settings_container)

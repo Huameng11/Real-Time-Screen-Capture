@@ -35,17 +35,9 @@ class ControlPanel(ttk.Frame):
     
     def setup_ui(self):
         """设置界面布局"""
-        # 控制面板标题
-        self.title_label = ttk.Label(
-            self, 
-            text="录制控制", 
-            style="Title.TLabel"
-        )
-        self.title_label.pack(fill="x", padx=5, pady=(10, 5))
-        
-        # 控制选项容器
-        control_container = ttk.Frame(self)
-        control_container.pack(fill="both", expand=True, padx=10, pady=5)
+        # 使用LabelFrame替代普通Frame，提供边框和标题
+        control_container = ttk.LabelFrame(self, text="录制控制", padding=(5, 5, 5, 5))
+        control_container.pack(fill="both", expand=True, padx=5, pady=5)
         
         # === 区域信息显示 ===
         region_frame = ttk.Frame(control_container)

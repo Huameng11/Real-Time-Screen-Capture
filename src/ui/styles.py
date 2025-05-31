@@ -18,7 +18,8 @@ COLORS = {
     "info": "#2196F3",  # 信息色（蓝色）
     "bg": "#F5F5F5",  # 背景色
     "text": "#212121",  # 主文本色
-    "text_secondary": "#757575"  # 次要文本色
+    "text_secondary": "#757575",  # 次要文本色
+    "border": "#BBDEFB"  # 边框颜色
 }
 
 def setup_styles(root):
@@ -35,6 +36,21 @@ def setup_styles(root):
     style.configure("TButton", background=COLORS["primary"], foreground="white")
     style.configure("TEntry", fieldbackground="white")
     style.configure("TCombobox", fieldbackground="white")
+    
+    # LabelFrame样式 - 为面板添加边框和标题样式
+    style.configure(
+        "TLabelframe", 
+        background=COLORS["bg"],
+        bordercolor=COLORS["primary"],
+        borderwidth=2
+    )
+    
+    style.configure(
+        "TLabelframe.Label", 
+        background=COLORS["bg"],
+        foreground=COLORS["primary"],
+        font=("Arial", 12, "bold")
+    )
     
     # 标题样式
     style.configure(
@@ -77,7 +93,7 @@ def setup_styles(root):
     style.configure(
         "Primary.TButton", 
         background=COLORS["primary"],
-        foreground="white",
+        foreground="black",
         padding=5
     )
     style.map(
@@ -89,7 +105,7 @@ def setup_styles(root):
     style.configure(
         "Action.TButton", 
         background=COLORS["accent"],
-        foreground="white",
+        foreground="black",
         font=("Arial", 12, "bold"),
         padding=8
     )

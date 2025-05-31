@@ -1,0 +1,16 @@
+{
+    "output_dir": "C:\\Users\\admin\\Desktop",
+    "fps": 30,
+    "output_format": "mp4",
+    "region": [
+        232,
+        342,
+        909,
+        513
+    ],
+    "ui": {
+        "theme": "arc",
+        "window_geometry": "450x550",
+        "window_visible": true
+    }
+}
